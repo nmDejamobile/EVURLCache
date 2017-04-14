@@ -7,30 +7,9 @@
 //
 
 import Foundation
-//import ReachabilitySwift
 
 #if os(iOS)
     import MobileCoreServices
-fileprivate func < <T : Comparable>(lhs: T?, rhs: T?) -> Bool {
-  switch (lhs, rhs) {
-  case let (l?, r?):
-    return l < r
-  case (nil, _?):
-    return true
-  default:
-    return false
-  }
-}
-
-fileprivate func > <T : Comparable>(lhs: T?, rhs: T?) -> Bool {
-  switch (lhs, rhs) {
-  case let (l?, r?):
-    return l > r
-  default:
-    return rhs < lhs
-  }
-}
-
 #elseif os(OSX)
     import CoreServices
 #endif
@@ -49,6 +28,7 @@ open class EVURLCache: URLCache {
     open static var _preCacheDirectory: String!
     open static var RECREATE_CACHE_RESPONSE = true // There is a difrence between unarchiving and recreating. I have to find out what.
     open static var IGNORE_CACHE_CONTROL = false // By default respect the cache control (and pragma) what is returned by the server
+    open static var PREVENT_CACHE_IF_NETWORK_AVAILABLE = false
     fileprivate static var _filter = { _ in return true } as ((_ request: URLRequest) -> Bool)
 
     // Activate EVURLCache
@@ -95,28 +75,37 @@ open class EVURLCache: URLCache {
         return EVURLCache.cachedResponse(for: request)
     }
     
-    open static func cachedResponse(for request: URLRequest) -> CachedURLResponse? {
+    open static func cachedResponse(for request: URLRequest, forced: Bool = false) -> CachedURLResponse? {
+        
+        // TODO: do not test if forced
+        guard !(PREVENT_CACHE_IF_NETWORK_AVAILABLE && EVURLCache.networkAvailable()) else {
+            EVURLCache.debugLog("CACHE use not allowed when network is available")
+            return nil
+        }
+        
         guard let url = request.url else {
             EVURLCache.debugLog("CACHE not allowed for nil URLs")
             return nil
         }
-
-        if url.absoluteString.isEmpty {
+        
+        guard !url.absoluteString.isEmpty else {
             EVURLCache.debugLog("CACHE not allowed for empty URLs")
             return nil
         }
         
-        if !EVURLCache._filter(request) {
+        // TODO: do not test if forced
+        guard EVURLCache._filter(request) else {
             EVURLCache.debugLog("CACHE skipped because of filter")
             return nil
         }
-
+        
+        // TODO: do not test if forced
         // is caching allowed
         if ((request.cachePolicy == NSURLRequest.CachePolicy.reloadIgnoringCacheData || url.absoluteString.hasPrefix("file:/") || url.absoluteString.hasPrefix("data:")) && EVURLCache.networkAvailable()) {
             EVURLCache.debugLog("CACHE not allowed for \(url)")
             return nil
         }
-
+        
         // Check if there is a cache for this request
         let storagePath = EVURLCache.storagePathForRequest(request, rootPath: EVURLCache._cacheDirectory) ?? ""
         if !FileManager.default.fileExists(atPath: storagePath) {
@@ -127,21 +116,22 @@ open class EVURLCache: URLCache {
                 return nil
             }
         }
-
+        
+        // TODO: do not test if forced
         // Check file status only if we have network, otherwise return it anyway.
         if EVURLCache.networkAvailable() {
             if cacheItemExpired(request, storagePath: storagePath) {
-                let maxAge: String = request.value(forHTTPHeaderField: "Access-Control-Max-Age") ?? EVURLCache.MAX_AGE
+                let maxAge = EVURLCache.IGNORE_CACHE_CONTROL ? EVURLCache.MAX_AGE : (request.value(forHTTPHeaderField: "Access-Control-Max-Age") ?? EVURLCache.MAX_AGE)
                 EVURLCache.debugLog("CACHE item older than \(maxAge) seconds")
                 return nil
                 
             }
         }
-
+        
         // Read object from file
         if let response = NSKeyedUnarchiver.unarchiveObject(withFile: storagePath) as? CachedURLResponse {
             EVURLCache.debugLog("Returning cached data from \(storagePath)")
-
+            
             // I have to find out the difrence. For now I will let the developer checkt which version to use
             if EVURLCache.RECREATE_CACHE_RESPONSE {
                 // This works for most sites, but aperently not for the game as in the alternate url you see in ViewController
@@ -151,15 +141,11 @@ open class EVURLCache: URLCache {
                     let redirectTo = headerFiels["Location"] ?? ""
                     print("Redirecting from: \(response.response.url?.absoluteString ?? "")\nto: \(redirectTo)")
                     
-                    // returning the actual redirect response
- //                   let r = URLResponse(url: URL(string: redirectTo)!, mimeType: response.response.mimeType, expectedContentLength: response.data.count, textEncodingName: response.response.textEncodingName)
-//                    return CachedURLResponse(response: r, data: response.data, userInfo: response.userInfo, storagePolicy: .allowed)
-                    
                     // returning the response of the redirected url
                     let redirectRequest = URLRequest(url: URL(string: redirectTo)!, cachePolicy: request.cachePolicy, timeoutInterval: request.timeoutInterval)
                     return self.cachedResponse(for: redirectRequest)
                 }
-            
+                
                 let r = URLResponse(url: response.response.url!, mimeType: response.response.mimeType, expectedContentLength: response.data.count, textEncodingName: response.response.textEncodingName)
                 return CachedURLResponse(response: r, data: response.data, userInfo: response.userInfo, storagePolicy: .allowed)
             }
@@ -170,7 +156,7 @@ open class EVURLCache: URLCache {
         }
         return nil
     }
-
+    
     // Will be called by NSURLConnection when a request is complete.
     open override func storeCachedResponse(_ cachedResponse: CachedURLResponse, for request: URLRequest) {
         if !EVURLCache._filter(request) {
@@ -178,7 +164,7 @@ open class EVURLCache: URLCache {
         }
         if let httpResponse = cachedResponse.response as? HTTPURLResponse {
             if httpResponse.statusCode >= 400 {
-                EVURLCache.debugLog("CACHE Do not cache error \(httpResponse.statusCode) page for : \(request.url) \(httpResponse.debugDescription)")
+                EVURLCache.debugLog("CACHE Do not cache error \(httpResponse.statusCode) page for : \(String(describing: request.url)) \(httpResponse.debugDescription)")
                 return
             }
         }
@@ -210,10 +196,10 @@ open class EVURLCache: URLCache {
             // If the file is in the PreCache folder, then we do want to save a copy in case we are without internet connection
             let storagePath = EVURLCache.storagePathForRequest(request, rootPath: EVURLCache._preCacheDirectory) ?? ""
             if !FileManager.default.fileExists(atPath: storagePath) {
-                EVURLCache.debugLog("CACHE not storing file, it's not allowed by the \(shouldSkipCache) : \(request.url)")
+                EVURLCache.debugLog("CACHE not storing file, it's not allowed by the \(String(describing: shouldSkipCache)) : \(String(describing: request.url))")
                 return
             }
-            EVURLCache.debugLog("CACHE file in PreCache folder, overriding \(shouldSkipCache) : \(request.url)")
+            EVURLCache.debugLog("CACHE file in PreCache folder, overriding \(String(describing: shouldSkipCache)) : \(String(describing: request.url))")
         }
 
         // create storrage folder
@@ -252,7 +238,7 @@ open class EVURLCache: URLCache {
     
     fileprivate static func cacheItemExpired(_ request: URLRequest, storagePath: String) -> Bool {
         // Max cache age for request
-        let maxAge: String = request.value(forHTTPHeaderField: "Access-Control-Max-Age") ?? EVURLCache.MAX_AGE
+        let maxAge = EVURLCache.IGNORE_CACHE_CONTROL ? EVURLCache.MAX_AGE : (request.value(forHTTPHeaderField: "Access-Control-Max-Age") ?? EVURLCache.MAX_AGE)
         
         guard let maxAgeInterval: TimeInterval = Double(maxAge) else {
             EVURLCache.debugLog("MAX_AGE value string is incorrect")
