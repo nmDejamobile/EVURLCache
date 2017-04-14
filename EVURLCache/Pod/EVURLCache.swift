@@ -28,7 +28,7 @@ open class EVURLCache: URLCache {
     open static var _preCacheDirectory: String!
     open static var RECREATE_CACHE_RESPONSE = true // There is a difrence between unarchiving and recreating. I have to find out what.
     open static var IGNORE_CACHE_CONTROL = false // By default respect the cache control (and pragma) what is returned by the server
-    open static var PREVENT_CACHE_IF_NETWORK_AVAILABLE = false
+    open static var PREVENT_CACHE_IF_NETWORK_AVAILABLE = false //by default let the system decide if it should use cache or not, but setting this to true you can tell it to disable cache storage or loading if network is available 
     fileprivate static var _filter = { _ in return true } as ((_ request: URLRequest) -> Bool)
 
     // Activate EVURLCache

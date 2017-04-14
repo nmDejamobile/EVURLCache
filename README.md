@@ -40,19 +40,21 @@ the cache. You can get the full path of that file by calling: EVURLCache.storage
 
 ## Controlling the cache
 
-EVURLCache respects the HTTP header variables 'Cache-Control' and 'Pragma' when these contain 'no-cache' or 'no-store' then the response will not be written to the cache. You do have to be aware that if the file is already in the cache because you have put it in the PreCache folder yourself or the file was previously fetched with different header variables, the file will be written to the cache in order to update it's contents and the HTTP header varialbes will be ignored.
+EVURLCache respects the HTTP header variables 'Cache-Control' and 'Pragma' when these contain 'no-cache' or 'no-store' then the response will not be written to the cache. You do have to be aware that if the file is already in the cache because you have put it in the PreCache folder yourself or the file was previously fetched with different header variables, the file will be written to the cache in order to update it's contents and the HTTP header variables will be ignored.
 
 EVURLCache will also take into account the HTTP header variable 'Access-Control-Max-Age' when reading from the cache. When the content is older it will try to fetch it again.
 
 Caching is done based on the complete URL including the querystring parameters. If for some reason you want multiple URL's to be stored and fetched as the same cache item, then you can add the HTTP header variable (server side) MobileAppCacheKey
 
-Most webservers interpit url's' case insesnsitive. Since iOS and OSX (not always) have a case sensitive file system it could be that a URL is requested that do not have a case sensitive match on the file system. By default EVURLCache stores all files while converting the path to lowercase. If you do want a case sensitive match, then you could set the EVURLCache.FORCE_LOWERCASE to false
+Most webservers interpret url's' case insensitive. Since iOS and OSX (not always) have a case sensitive file system it could be that a URL is requested that do not have a case sensitive match on the file system. By default EVURLCache stores all files while converting the path to lowercase. If you do want a case sensitive match, then you could set the EVURLCache.FORCE_LOWERCASE to false
 
 You can influence the maximum file size that will be cached by EVURLCache. This is a setting that is handled by the NSURLCache base class. By default it's set to 16MB. You can influence this by setting the EVURLCache.MAX_FILE_SIZE. It's set as number of bits. So setting it to 24 will mean a cache size of  2^24 = 16MB
 
 You can influence the maximum total size that will be cached by EVURLCache. This is a setting that is handled by the NSURLCache base class. By default it's set to 256MB. You can influence this by setting the EVURLCache.MAX_CACHE_SIZE It's set as number of bits. So setting it to 30 will mean a cache size of 2^30 = 256MB. Make sure it's at least 16 times larger than the Maximum file size or the maximum file size will not be used
 
 If you want to see what EVURLCache is doing, then set EVURLCache.LOGGING to true
+
+By default you let the system decide if it should use cache or not, but setting PREVENT_CACHE_IF_NETWORK_AVAILABLE to true you can tell it to disable cache storage or loading if network is available.
 
 ## See the demo in action
 
