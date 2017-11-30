@@ -40,7 +40,9 @@ open class EVURLCache: URLCache {
         let urlCache = EVURLCache(memoryCapacity: 1<<MAX_FILE_SIZE, diskCapacity: 1<<MAX_CACHE_SIZE, diskPath: _cacheDirectory)
 
         URLCache.shared = urlCache
-        URLProtocol.registerClass(EVURLProtocol.self)
+        
+        // TODO: Fix this protocol so that redirects are handled but normal pages are not influenced.
+        //URLProtocol.registerClass(EVURLProtocol.self)
 
     }
 
@@ -109,10 +111,10 @@ open class EVURLCache: URLCache {
         // Check if there is a cache for this request
         let storagePath = EVURLCache.storagePathForRequest(request, rootPath: EVURLCache._cacheDirectory) ?? ""
         if !FileManager.default.fileExists(atPath: storagePath) {
-            EVURLCache.debugLog("PRECACHE not found \(storagePath)")
+            EVURLCache.debugLog("CACHE not found \(storagePath)")
             let storagePath = EVURLCache.storagePathForRequest(request, rootPath: EVURLCache._preCacheDirectory) ?? ""
             if !FileManager.default.fileExists(atPath: storagePath) {
-                EVURLCache.debugLog("CACHE not found \(storagePath)")
+                EVURLCache.debugLog("PRECACHE not found \(storagePath)")
                 return nil
             }
         }
@@ -159,18 +161,22 @@ open class EVURLCache: URLCache {
     
     // Will be called by NSURLConnection when a request is complete.
     open override func storeCachedResponse(_ cachedResponse: CachedURLResponse, for request: URLRequest) {
-        if !EVURLCache._filter(request) {
-            return
-        }
+
+        // errors are never cached
         if let httpResponse = cachedResponse.response as? HTTPURLResponse {
             if httpResponse.statusCode >= 400 {
-                EVURLCache.debugLog("CACHE Do not cache error \(httpResponse.statusCode) page for : \(String(describing: request.url)) \(httpResponse.debugDescription)")
+                EVURLCache.debugLog("CACHE Do not cache error \(httpResponse.statusCode) page for : \(request.url?.absoluteString ?? "") \(httpResponse.debugDescription)")
                 return
             }
         }
 
         var shouldSkipCache: String? = nil
-
+        
+        // You could create your own filter
+        if !EVURLCache._filter(request) {
+            shouldSkipCache = "is in filter"
+        }
+        
         // check if caching is allowed according to the request
         if request.cachePolicy == NSURLRequest.CachePolicy.reloadIgnoringCacheData {
             shouldSkipCache = "request cache policy"
@@ -196,10 +202,10 @@ open class EVURLCache: URLCache {
             // If the file is in the PreCache folder, then we do want to save a copy in case we are without internet connection
             let storagePath = EVURLCache.storagePathForRequest(request, rootPath: EVURLCache._preCacheDirectory) ?? ""
             if !FileManager.default.fileExists(atPath: storagePath) {
-                EVURLCache.debugLog("CACHE not storing file, it's not allowed by the \(String(describing: shouldSkipCache)) : \(String(describing: request.url))")
+                EVURLCache.debugLog("CACHE not storing file, it's not allowed by the \(shouldSkipCache.debugDescription) : \(request.url?.absoluteString ?? "")")
                 return
             }
-            EVURLCache.debugLog("CACHE file in PreCache folder, overriding \(String(describing: shouldSkipCache)) : \(String(describing: request.url))")
+            EVURLCache.debugLog("CACHE file in PreCache folder, overriding \(shouldSkipCache.debugDescription) : \(request.url?.absoluteString ?? "")")
         }
 
         // create storrage folder
@@ -207,7 +213,7 @@ open class EVURLCache: URLCache {
         if var storageDirectory: String = NSURL(fileURLWithPath: "\(storagePath)").deletingLastPathComponent?.absoluteString.removingPercentEncoding {
             do {
                 if storageDirectory.hasPrefix("file:") {
-                    storageDirectory = storageDirectory.substring(from: storageDirectory.characters.index(storageDirectory.startIndex, offsetBy: 5))
+                    storageDirectory = String(storageDirectory.suffix(from: storageDirectory.index(storageDirectory.startIndex, offsetBy: 5)))
                 }
                 try FileManager.default.createDirectory(atPath: storageDirectory, withIntermediateDirectories: true, attributes: nil)
             } catch let error as NSError {
@@ -266,7 +272,7 @@ open class EVURLCache: URLCache {
         var result = path
         
         if path.hasPrefix("file:") {
-            result = path.substring(from: path.index(path.startIndex, offsetBy: 5))
+            result = String(path.suffix(from: path.index(path.startIndex, offsetBy: 5)))
             var prevResult = String()
             
             while prevResult != result {
@@ -288,7 +294,7 @@ open class EVURLCache: URLCache {
         if !FileManager.default.fileExists(atPath: storagePath ?? "") {
             storagePath = nil
         }
-        return storagePath
+        return storagePath?.removingPercentEncoding
     }
 
     // build up the complete storrage path for a request plus root folder.
@@ -333,7 +339,7 @@ open class EVURLCache: URLCache {
         
         // Cleanup
         localUrl = cleanupPath(path: localUrl)
-        return localUrl
+        return localUrl.removingPercentEncoding
     }
     
     open static func addSkipBackupAttributeToItemAtURL(_ url: URL) -> Bool {
